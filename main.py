@@ -1,170 +1,106 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Form
-from fastapi.responses import HTMLResponse
-from fastapi.security import HTTPBasic, HTTPCredentials
+import os
+import sqlite3
+from flask import Flask, render_template_string, jsonify
 
-app = FastAPI()
-security = HTTPBasic()
+app = Flask(__name__)
 
-# Moderator credentials
-MOD_USERNAME = "mod"
-MOD_PASSWORD = "securepassword123"
+def get_live_stats():
+    db_path = "bot.db"
+    stats = {
+        "active_users": 0,
+        "total_cards_claimed": 0,
+        "coins_in_circulation": "0",
+        "completed_trades": 0
+    }
+    
+    if os.path.exists(db_path):
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT COUNT(*) FROM users;")
+            stats["active_users"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM user_cards;")
+            stats["total_cards_claimed"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT SUM(balance) FROM users;")
+            total_coins = cursor.fetchone()[0]
+            stats["coins_in_circulation"] = f"{total_coins:,}" if total_coins else "0"
+            
+            cursor.execute("SELECT COUNT(*) FROM trades WHERE status = 'completed';")
+            stats["completed_trades"] = cursor.fetchone()[0]
+            
+            conn.close()
+        except Exception as e:
+            print(f"Database read error: {e}")
+            
+    return stats
 
-def verify_credentials(credentials: HTTPCredentials = Depends(security)):
-    if credentials.username != MOD_USERNAME or credentials.password != MOD_PASSWORD:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
-
-@app.get("/", response_class=HTMLResponse)
-async def serve_dashboard(username: str = Depends(verify_credentials)):
-    return """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Liquid Glass Moderator Dashboard</title>
-        <style>
-            * { box-sizing: border-box; }
-            body {
-                background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-                color: #f1f5f9;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                margin: 0;
-                overflow: hidden;
-            }
-            .glass-card {
-                background: rgba(255, 255, 255, 0.04);
-                backdrop-filter: blur(20px);
-                -webkit-backdrop-filter: blur(20px);
-                padding: 40px 30px;
-                border-radius: 32px;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                width: 340px;
-                text-align: center;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-            }
-            h2 {
-                margin-bottom: 8px;
-                font-size: 22px;
-                font-weight: 600;
-                letter-spacing: -0.5px;
-                color: #ffffff;
-            }
-            p.subtitle {
-                color: #94a3b8;
-                font-size: 13px;
-                margin-bottom: 25px;
-            }
-            input {
-                width: 100%;
-                padding: 14px 18px;
-                margin: 8px 0;
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 16px;
-                color: #fff;
-                font-size: 15px;
-                outline: none;
-                transition: all 0.3s ease;
-            }
-            input::placeholder {
-                color: #64748b;
-            }
-            input:focus {
-                background: rgba(255, 255, 255, 0.08);
-                border-color: rgba(56, 189, 248, 0.5);
-                box-shadow: 0 0 15px rgba(56, 189, 248, 0.15);
-            }
-            button {
-                width: 100%;
-                padding: 14px;
-                background: linear-gradient(135deg, #38bdf8 0%, #0ea5e9 100%);
-                border: none;
-                border-radius: 16px;
-                color: #0f172a;
-                font-weight: 700;
-                font-size: 15px;
-                cursor: pointer;
-                margin-top: 15px;
-                box-shadow: 0 10px 20px rgba(14, 165, 233, 0.3);
-                transition: transform 0.2s ease, opacity 0.2s ease;
-            }
-            button:active {
-                transform: scale(0.97);
-            }
-        </style>
-    </head>
-    <body>
-        <div class="glass-card">
-            <h2>Moderator Panel</h2>
-            <p class="subtitle">Bot Control System</p>
-            <form action="/add-coins" method="POST">
-                <input type="text" name="user_id" placeholder="User ID / Username" required>
-                <input type="number" name="amount" placeholder="Coins to Add" required>
-                <button type="submit">Add Coins</button>
-            </form>
+MINIMAL_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bot Stats</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-black text-white min-h-screen flex items-center justify-center p-6">
+    <div class="w-full max-w-2xl space-y-8">
+        <div class="flex justify-between items-baseline border-b border-neutral-900 pb-4">
+            <h1 class="text-lg font-medium tracking-tight text-neutral-300">Bot Overview</h1>
+            <span class="text-xs text-emerald-400 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>Live</span>
         </div>
-    </body>
-    </html>
-    """
 
-@app.post("/add-coins", response_class=HTMLResponse)
-async def add_coins(user_id: str = Form(...), amount: int = Form(...), username: str = Depends(verify_credentials)):
-    return f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Success</title>
-        <style>
-            body {{
-                background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-                color: #f1f5f9;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                margin: 0;
-            }}
-            .glass-card {{
-                background: rgba(255, 255, 255, 0.04);
-                backdrop-filter: blur(20px);
-                -webkit-backdrop-filter: blur(20px);
-                padding: 40px 30px;
-                border-radius: 32px;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                width: 320px;
-                text-align: center;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-            }}
-            h2 {{ color: #38bdf8; margin-top: 0; font-size: 24px; }}
-            p {{ color: #cbd5e1; font-size: 15px; line-height: 1.5; }}
-            a {{
-                display: inline-block;
-                margin-top: 20px;
-                color: #38bdf8;
-                text-decoration: none;
-                font-weight: 600;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="glass-card">
-            <h2>Success!</h2>
-            <p>Added <b>{amount}</b> coins to user <b>{user_id}</b>.</p>
-            <a href="/">← Back to Dashboard</a>
+        <div class="grid grid-cols-2 gap-4">
+            <div class="bg-neutral-950 border border-neutral-900 p-6 rounded-2xl">
+                <p class="text-xs text-neutral-500 uppercase tracking-wider mb-2">Active Users</p>
+                <p id="stat-users" class="text-3xl font-light tracking-tight">{{ stats.active_users }}</p>
+            </div>
+            <div class="bg-neutral-950 border border-neutral-900 p-6 rounded-2xl">
+                <p class="text-xs text-neutral-500 uppercase tracking-wider mb-2">Cards Claimed</p>
+                <p id="stat-cards" class="text-3xl font-light tracking-tight">{{ stats.total_cards_claimed }}</p>
+            </div>
+            <div class="bg-neutral-950 border border-neutral-900 p-6 rounded-2xl">
+                <p class="text-xs text-neutral-500 uppercase tracking-wider mb-2">Coins in Circulation</p>
+                <p id="stat-coins" class="text-3xl font-light tracking-tight text-yellow-500/90">{{ stats.coins_in_circulation }}</p>
+            </div>
+            <div class="bg-neutral-950 border border-neutral-900 p-6 rounded-2xl">
+                <p class="text-xs text-neutral-500 uppercase tracking-wider mb-2">Completed Trades</p>
+                <p id="stat-trades" class="text-3xl font-light tracking-tight text-purple-400/90">{{ stats.completed_trades }}</p>
+            </div>
         </div>
-    </body>
-    </html>
-    """
-  
+    </div>
+
+    <script>
+        async function fetchStats() {
+            try {
+                let response = await fetch('/api/stats');
+                let data = await response.json();
+                document.getElementById('stat-users').innerText = data.active_users;
+                document.getElementById('stat-cards').innerText = data.total_cards_claimed;
+                document.getElementById('stat-coins').innerText = data.coins_in_circulation;
+                document.getElementById('stat-trades').innerText = data.completed_trades;
+            } catch (err) {
+                console.error("Failed to sync stats:", err);
+            }
+        }
+        setInterval(fetchStats, 10000); // Automatically updates every 10 seconds
+    </script>
+</body>
+</html>
+"""
+
+@app.route('/')
+def dashboard():
+    stats = get_live_stats()
+    return render_template_string(MINIMAL_HTML, stats=stats)
+
+@app.route('/api/stats')
+def api_stats():
+    return jsonify(get_live_stats())
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
+    
