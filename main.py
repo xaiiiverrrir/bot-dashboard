@@ -4,9 +4,7 @@ from flask import Flask, render_template_string, jsonify, request, redirect, url
 
 app = Flask(__name__)
 
-# Function to get a connection to your cloud PostgreSQL database
 def get_db_connection():
-    # Render provides your cloud database URL in an environment variable named DATABASE_URL
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         return None
@@ -24,21 +22,16 @@ def get_live_stats():
     if conn:
         try:
             cursor = conn.cursor()
-            
-            # 1. Active Users Count
             cursor.execute("SELECT COUNT(*) FROM users;")
             stats["active_users"] = cursor.fetchone()[0]
             
-            # 2. Total Cards Claimed Count
             cursor.execute("SELECT COUNT(*) FROM user_cards;")
             stats["total_cards_claimed"] = cursor.fetchone()[0]
             
-            # 3. Coins in Circulation
             cursor.execute("SELECT SUM(balance) FROM users;")
             total_coins = cursor.fetchone()[0]
             stats["coins_in_circulation"] = f"{total_coins:,}" if total_coins else "0"
             
-            # 4. Completed Trades Count
             cursor.execute("SELECT COUNT(*) FROM trades WHERE status = 'completed';")
             stats["completed_trades"] = cursor.fetchone()[0]
             
@@ -168,7 +161,6 @@ def api_stats():
 def add_coins():
     user_id = request.form.get('user_id')
     amount = request.form.get('amount')
-    
     conn = get_db_connection()
     if conn and user_id and amount:
         try:
@@ -179,14 +171,12 @@ def add_coins():
             conn.close()
         except Exception as e:
             print(f"Error adding coins: {e}")
-            
     return redirect(url_for('dashboard'))
 
 @app.route('/action/add-card', methods=['POST'])
 def add_card():
     user_id = request.form.get('user_id')
     card_id = request.form.get('card_id')
-    
     conn = get_db_connection()
     if conn and user_id and card_id:
         try:
@@ -197,7 +187,6 @@ def add_card():
             conn.close()
         except Exception as e:
             print(f"Error adding card: {e}")
-            
     return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
