@@ -8,6 +8,8 @@ def get_db_connection():
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         return None
+    # Strip any accidental quotes or whitespace that cause parsing issues
+    database_url = database_url.strip().strip('"').strip("'")
     return psycopg2.connect(database_url, sslmode='require')
 
 def get_live_stats():
